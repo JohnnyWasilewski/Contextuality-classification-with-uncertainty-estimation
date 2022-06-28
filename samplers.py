@@ -72,8 +72,8 @@ def _check_positivity(vector, n=5):
 
 
 def prepare_mixed_states_from_10D_saved(contextual_number, noncontextual_number, train=True, threshold=150000):
-    contextual = np.load("data/contextual_all.npy.npy")
-    noncontextual = np.load("data/noncontextual_all.npy.npy")
+    contextual = np.load("data/contextual_all.npy")
+    noncontextual = np.load("data/noncontextual_all.npy")
     noncontextual, contextual = (noncontextual[:threshold], contextual[:threshold]) if train else (noncontextual[threshold:], contextual[threshold:])
     return contextual[np.random.choice(len(contextual), contextual_number)], noncontextual[np.random.choice(len(noncontextual), noncontextual_number)]
 

@@ -74,21 +74,6 @@ def check_noncontexuality(table):
     # print(results.shape)
     return np.all(results <= n - 2), results
 
-
-
-
-class MyDataset(Dataset):
-    def __init__(self, X, y):
-        self.X = torch.FloatTensor(np.array(X))
-        self.y = torch.FloatTensor(np.array(y))
-
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
-
-    def __len__(self):
-        return len(self.X)
-
-
 def NL(behaviour, noncontextual, num=5000):
     return np.min(1 / 10 * np.sum(np.reshape(np.abs(behaviour - noncontextual), (int(num), -1)), axis=1))
 
@@ -103,7 +88,11 @@ def NL_square(behaviour, noncontextual, num=5000):
 
 def get_dataloaders_c(num: int, batch_size: int = 500, fun=projection_distance):
     contextual_test, _ = samplers.prepare_mixed_states_from_10D_saved(num, 0, train=False)
-    return DataLoader(MyDataset(contextual_test, list(map(fun, contextual_test))), batch_size)
+    dataset = torch.utils.data.TensorDataset(
+        torch.from_numpy(contextual_test).float(),
+        torch.from_numpy(np.array(list(map(fun, contextual_test)))).long()
+    )
+    return DataLoader(dataset, batch_size)
 
 
 def get_dataloaders(num: int, batch_size: int = 500):
@@ -117,11 +106,15 @@ def get_dataloaders(num: int, batch_size: int = 500):
     data_y = np.transpose(np.vstack((m1, m2)))
 
     X_train, X_test, y_train, y_test = train_test_split(data_X, data_y)
+    ds1 = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float(), torch.from_numpy(y_train[:, 1]).long())
+    ds2 = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float(), torch.from_numpy(y_test[:, 1]).long())
+    ds3 = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float(), torch.from_numpy(y_train[:, 0]).long())
+    ds4 = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float(), torch.from_numpy(y_test[:, 0]).long())
 
-    return (DataLoader(MyDataset(X_train, y_train[:, 1]), batch_size),
-            DataLoader(MyDataset(X_test, y_test[:, 1]), batch_size),
-            DataLoader(MyDataset(X_train, y_train[:, 0]), batch_size),
-            DataLoader(MyDataset(X_test, y_test[:, 0]), batch_size))
+    return (DataLoader(ds1, batch_size),
+            DataLoader(ds2, batch_size),
+            DataLoader(ds3, batch_size),
+            DataLoader(ds4, batch_size))
 
 
 

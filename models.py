@@ -4,82 +4,113 @@ import torch.optim as optim
 
 import numpy as np
 
+from torchmetrics import Accuracy
 
-def learn_classifier(data_loader_train, data_loader_test, device='cpu'):
-    class mlp(nn.Module):
-        def __init__(self, input_size):
-            super(mlp, self).__init__()
-            #self.conv1 = nn.Conv1d(1, 50, 4)
-            #self.conv2 = nn.Conv1d(50, 100, 4)
-            #self.pool = nn.MaxPool1d(4)
-            self.l1 = nn.Linear(20, 128)
-            self.l2 = nn.Linear(128, 64)
-            self.l3 = nn.Linear(64, 32)
-            self.l4 = nn.Linear(32, 1)
-            self.relu = nn.ReLU()
-            self.flatten = nn.Flatten()
-            self.dropout = nn.Dropout(0.5)
+class Model(nn.Module):
+    def __init__(self, input_size):
+        super(Model, self).__init__()
+        self.model = nn.Sequential(
+            # nn.Conv1d(1, 50, 4),
+            # nn.Conv1d(50, 100, 4),
+            # nn.MaxPool1d(4), #output size = 300
+            nn.Flatten(),
+            nn.Linear(input_size, 128),
+            nn.LeakyReLU(),
+            nn.Dropout(.5),
+            nn.Linear(128, 64),
+            nn.LeakyReLU(),
+            nn.Dropout(.5),
+            nn.Linear(64, 32),
+            nn.LeakyReLU(),
+            nn.Dropout(.5),
+            nn.Linear(32, 2),
+        )
 
-        def forward(self, x):
-            x = self.flatten(x)
-            #x = self.pool(self.conv1(x))
-            #x = self.conv2(x).squeeze()
-            x = self.dropout(self.relu(self.l1(x)))
-            x = self.dropout(self.relu(self.l2(x)))
-            x = self.dropout(self.relu(self.l3(x)))
-            x = self.l4(x)
-            return x
+    def forward(self, x):
+        x = x.view(x.size(0), 1, -1)
+        return self.model(x)
 
-    def binary_acc(y_pred, y_test):
-        y_pred_tag = torch.round(torch.sigmoid(y_pred))
-        correct_results_sum = (y_pred_tag == y_test).sum().float()
-        acc = correct_results_sum / y_test.shape[0]
-        return torch.round(acc * 100)
 
-    def learn(alpha=0.0001):
-        input_size = np.prod(next(iter(data_loader_train))[0][0].shape)
+class Classifier(nn.Module):
+    def __init__(self, train_dataloader, test_dataloader, device='cpu', epochs=20):
+        super().__init__()
+        self.acc = Accuracy()
+        self.train_acc = 0
+        self.test_acc = 0
+        input_size = np.prod(next(iter(train_dataloader))[0][0].shape)
+        self.model = Model(input_size)
+        self._train_dataloader = train_dataloader
+        self._test_dataloader = test_dataloader
+        self._device = device
+        self._epochs = epochs
 
-        classifier = mlp(input_size)
-        criterion = nn.BCEWithLogitsLoss()
-        optimizer = optim.Adam(classifier.parameters(), lr=0.001)
-
-        classifier.train()
-        classifier.to(device)
-
-        epochs = 20
-        for epoch in range(1, epochs):
+    def train(self, alpha=0.0001, lr=0.001):
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.model.train()
+        self.model.to(self._device)
+        for epoch in range(1, self._epochs):
             epoch_loss = 0
             epoch_acc = 0
-            for X, y in data_loader_train:
+            num_samples = 0
+            proper_preds = 0
+            for X, y in self._train_dataloader:
                 optimizer.zero_grad()
-                X, y = X.to(device), y.to(device)
-                y_hat = classifier(X)
-                params = torch.cat([x.view(-1) for x in classifier.parameters()])
+                y = y.type(torch.LongTensor)
+                X, y = X.to(self._device), y.to(self._device)
+                y_hat = self.model(X)
+                params = torch.cat([x.view(-1) for x in self.model.parameters()])
                 l2_regularization = alpha * torch.norm(params, 2) ** 2
-                loss = criterion(y_hat, y.unsqueeze(1)) + l2_regularization
+                loss = criterion(y_hat, y) + l2_regularization
                 loss.backward()
                 optimizer.step()
 
-                acc = binary_acc(y_hat, y.unsqueeze(1)).to('cpu')
-
+                proper_preds += torch.sum(torch.argmax(y_hat, dim=1) == y).detach().cpu().numpy()
+                num_samples += y.size()[0]
+                acc = torch.mean((torch.argmax(y_hat, dim=1) == y).float())
                 epoch_loss += loss.item()
                 epoch_acc += acc.item()
-            if epoch % 20 == 0:
-                print(f'Epoch {epoch} acc is {epoch_acc/ len(data_loader_train)}')
+                # if epoch % 20 == 0:
+                #     print(f'Epoch {epoch} acc is {epoch_acc/ len(self._train_dataloader)}')
 
-        classifier.eval()
-        test_acc = 0
-        for X, y in data_loader_test:
-            X, y = X.to(device), y.to(device)
-            y_hat = classifier(X)
-            test_acc += binary_acc(y_hat, y.unsqueeze(1))
+    def eval(self):
+        self.model.eval()
+        proper_preds_train = 0
+        num_samples_train = 0
+        for X, y in self._train_dataloader:
+            X, y = X.to(self._device), y.to(self._device)
+            y_hat = self.model(X)
+            num_samples_train += y.size()[0]
+            proper_preds_train += torch.sum((torch.argmax(y_hat, dim=1) == y).float()).item()
 
-        print(f'Classifier learn has finished with acc: {epoch_acc / len(data_loader_train):.3f}')
-        print(f'Test acc: {test_acc / len(data_loader_test):.3f}')
-        return classifier, (test_acc.item() / len(data_loader_test))
-    classifier_raw, acc_raw = learn(0)
-    classifier, acc = learn()
-    return classifier, classifier_raw, acc, acc_raw
+        self.train_acc = proper_preds_train / num_samples_train
+
+
+        proper_preds = 0
+        num_samples = 0
+        for X, y in self._test_dataloader:
+            X, y = X.to(self._device), y.to(self._device)
+            y_hat = self.model(X)
+            num_samples += y.size()[0]
+            proper_preds += torch.sum((torch.argmax(y_hat, dim=1) == y).float()).item()
+
+        self.test_acc = proper_preds / num_samples
+        print(f'Classifier learn has finished with acc: {self.train_acc:.3f}')
+        print(f'Test acc: {self.test_acc:.3f}')
+
+    def train_and_eval(self, alpha=0.001):
+        self.train(alpha)
+        self.eval()
+        return self.test_acc, self.train_acc
+
+    def pred(self, dataloader):
+        self.model.eval()
+        softmax = nn.Softmax(dim=1)
+        preds = []
+        for X, _ in dataloader:
+            y_hat = softmax(self.model(X.to(self._device)))[:, 1]
+            preds.append(y_hat)
+        return torch.concat(preds).cpu().detach().numpy()
 
 
 def learn_regressor(data_loader_train, device):
