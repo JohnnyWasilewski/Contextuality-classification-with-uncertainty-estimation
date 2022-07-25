@@ -22,7 +22,7 @@ def run():
 
     args = prepare_experiment_settings(100, [5000, 10000])
     for num, idx in args:
-        experiment(num, idx, 'cuda', metrics, results_path)
+        experiment(num, idx, 'cpu', metrics, results_path)
     metrics.to_csv(os.path.join(results_path, "results.csv"))
 
 

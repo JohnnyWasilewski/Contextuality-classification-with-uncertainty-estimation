@@ -14,10 +14,10 @@ class Model(nn.Module):
             # nn.Conv1d(50, 100, 4),
             # nn.MaxPool1d(4), #output size = 300
             nn.Flatten(),
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 64),
             nn.LeakyReLU(),
             nn.Dropout(.5),
-            nn.Linear(128, 64),
+            nn.Linear(64, 64),
             nn.LeakyReLU(),
             nn.Dropout(.5),
             nn.Linear(64, 32),
@@ -32,13 +32,13 @@ class Model(nn.Module):
 
 
 class Classifier(nn.Module):
-    def __init__(self, train_dataloader, test_dataloader, device='cpu', epochs=20):
+    def __init__(self, train_dataloader, test_dataloader, model, device='cpu', epochs=20):
         super().__init__()
         self.acc = Accuracy()
         self.train_acc = 0
         self.test_acc = 0
         input_size = np.prod(next(iter(train_dataloader))[0][0].shape)
-        self.model = Model(input_size)
+        self.model = model
         self._train_dataloader = train_dataloader
         self._test_dataloader = test_dataloader
         self._device = device
@@ -97,6 +97,18 @@ class Classifier(nn.Module):
         self.test_acc = proper_preds / num_samples
         print(f'Classifier learn has finished with acc: {self.train_acc:.3f}')
         print(f'Test acc: {self.test_acc:.3f}')
+
+    def predict(self, dataloader):
+        self.model.eval()
+        preds = []
+        num_samples_train = 0
+        for X, y in dataloader:
+            X, y = X.to(self._device), y.to(self._device)
+            self.model.to(self._device)
+            y_hat = self.model(X)
+            num_samples_train += y.size()[0]
+            preds.append((torch.argmax(y_hat, dim=1) == y).float().item())
+        return preds
 
     def train_and_eval(self, alpha=0.001):
         self.train(alpha)
