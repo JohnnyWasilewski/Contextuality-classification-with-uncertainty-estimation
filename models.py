@@ -95,20 +95,20 @@ class Classifier(nn.Module):
             proper_preds += torch.sum((torch.argmax(y_hat, dim=1) == y).float()).item()
 
         self.test_acc = proper_preds / num_samples
-        print(f'Classifier learn has finished with acc: {self.train_acc:.3f}')
+        print(f'Classifier training has finished with acc: {self.train_acc:.3f}')
         print(f'Test acc: {self.test_acc:.3f}')
 
     def predict(self, dataloader):
         self.model.eval()
         preds = []
-        num_samples_train = 0
+        gt = []
         for X, y in dataloader:
             X, y = X.to(self._device), y.to(self._device)
             self.model.to(self._device)
-            y_hat = self.model(X)
-            num_samples_train += y.size()[0]
-            preds.append((torch.argmax(y_hat, dim=1) == y).float().item())
-        return preds
+            #y_hat = self.model(X)
+            #preds.append(y_hat)#torch.argmax(y_hat, dim=1).numpy())
+            gt.append(y.numpy())
+        return preds, gt
 
     def train_and_eval(self, alpha=0.001):
         self.train(alpha)
@@ -117,12 +117,16 @@ class Classifier(nn.Module):
 
     def pred(self, dataloader):
         self.model.eval()
+        self.model.to(self._device)
         softmax = nn.Softmax(dim=1)
         preds = []
-        for X, _ in dataloader:
+        gt = []
+        for X, y in dataloader:
             y_hat = softmax(self.model(X.to(self._device)))[:, 1]
             preds.append(y_hat)
-        return torch.concat(preds).cpu().detach().numpy()
+            gt.append(y.numpy())
+
+        return torch.concat(preds).cpu().detach().numpy(), gt
 
 
 def learn_regressor(data_loader_train, device):

@@ -94,6 +94,13 @@ def get_dataloaders_c(num: int, batch_size: int = 500, fun=projection_distance):
     )
     return DataLoader(dataset, batch_size)
 
+def get_dataloaders_nc(num: int, batch_size: int = 50):
+    _, noncontextual_test = samplers.prepare_mixed_states_from_10D_saved(0, num, train=False)
+    dataset = torch.utils.data.TensorDataset(
+        torch.from_numpy(noncontextual_test).float(),
+        torch.from_numpy(np.array(list(map(projection_distance, noncontextual_test)))).long()
+    )
+    return DataLoader(dataset, batch_size)
 
 def get_dataloaders(num: int, batch_size: int = 500):
     num = int(num // 2)

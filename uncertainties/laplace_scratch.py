@@ -4,12 +4,6 @@ import torch
 import torch.nn as nn
 
 import numpy as np
-import laplace
-
-# ------------------------------------------------------------
-# ------------------------- LAPLACE --------------------------
-# ------------------------------------------------------------
-
 
 # Energy function hessian calculation
 def inverse_hessian(classifier, data_loader, device):
@@ -88,70 +82,3 @@ def _get_preds_laplace(data_loader, model_raw, model, train_dataloader, device):
         print(f'Calculated {(index + 1) * len(batch[0])} samples from {len(data_loader) * len(batch[0])} in {time_diff}')
     print(f"Uncertainties calculated in {time.time() - t0}")
     return preds_raw, preds_boosted_mackay, preds_mcmc, var
-
-
-def get_preds_laplace(train_dataloader, predict_dataloader, model, device):
-    model.to('cpu')
-    #
-    # class WrappedDataLoader:
-    #     def __init__(self, dl, func):
-    #         self.dl = dl
-    #         self.func = func
-    #
-    #     def __len__(self):
-    #         return len(self.dl)
-    #
-    #     def __iter__(self):
-    #         batches = iter(self.dl)
-    #         for b in batches:
-    #             yield (self.func(*b))
-    #
-    # def preprocess(x, y):
-    #     return x.to(device), y.to(device)
-    # train_dataloader = WrappedDataLoader(train_dataloader, preprocess)
-    # predict_dataloader = WrappedDataLoader(predict_dataloader, preprocess)
-
-    la = laplace.Laplace(model, likelihood='classification')
-    la.fit(train_dataloader)
-    preds = list()
-    for X, _ in predict_dataloader:
-        preds.append(la.predictive_samples(x=X, n_samples=1000)[:, :, 1])
-    m = torch.concat(preds, dim=1).numpy()
-    return np.sqrt(np.var(m, axis=0)), np.mean(m, axis=0)
-
-# -------------------------------------------------------------------------
-# ------------------------------ DROPOUT ----------------------------------
-# --------------------------------------------------------------------------
-
-def entropy(x):
-    return x*np.log2(x + 0.000000000001) + (1-x)*np.log2(1-x + 0.000000000001)
-
-def get_preds_dropout(dataloader, model, device):
-    model.eval()
-    for module in model.modules():
-        if module.__class__.__name__.startswith('Dropout'):
-            module.train()
-
-    iter_num = 100
-    y_true, y_preds, y_preds_raw = [], [], []
-    softmax = nn.Softmax(dim=1)
-    k,l=[],[]
-    for X, y in dataloader:
-        y_preds_tmp, y_preds_raw_tmp = [], []
-        for _ in range(iter_num):
-            X = X.to(device)
-            y_hat = softmax(model(X))[:, 1].cpu().detach().numpy()
-            l.append(softmax(model(X))[:, 0].cpu().detach().numpy())
-            y_preds_tmp.append(y_hat)
-            y_preds_raw_tmp.append(model(X)[:, 1].cpu().detach().numpy())
-        y_true.append(y.numpy())
-        y_preds.append(np.array(y_preds_tmp))
-        y_preds_raw.append(np.array(y_preds_raw_tmp))
-        k.append(np.array(l))
-    raw = np.concatenate(y_preds_raw, axis=1)
-    m = np.concatenate(y_preds, axis=1)
-    unc = entropy(np.count_nonzero(m < 0.5, axis=0) / iter_num)
-    unc_raw = entropy(np.count_nonzero(raw < 0.5, axis=0) / iter_num)
-    return np.count_nonzero(m < 0.5, axis=0), np.mean(m, axis=0), np.count_nonzero(raw < 0.5, axis=0)
-    #return unc, np.mean(m, axis=0), unc_raw
-    #return np.sqrt(np.var(m, axis=0)), np.mean(m, axis=0), np.sqrt(np.var(raw, axis=0))
